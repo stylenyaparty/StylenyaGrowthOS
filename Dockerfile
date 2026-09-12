@@ -11,7 +11,7 @@ FROM node:24-bookworm-slim AS production
 ENV NODE_ENV=production
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+RUN npm ci --omit=dev --legacy-peer-deps && npm cache clean --force
 COPY --from=build /app/dist ./dist
 RUN chown -R node:node /app
 USER node

@@ -58,14 +58,12 @@ async function start(): Promise<void> {
   let databaseInitializationFailed = false;
 
   try {
-    database = createPrismaDatabaseHealthAdapter(config.DATABASE_URL, {
-      warn: () => undefined,
-    });
+    database = createPrismaDatabaseHealthAdapter(config.DATABASE_URL);
   } catch {
     databaseInitializationFailed = true;
   }
 
-  const app = createApp(config, database);
+  const app = createApp(config, database, database);
   if (databaseInitializationFailed) {
     app.log.error(
       { component: 'database', error: 'initialization_failed' },

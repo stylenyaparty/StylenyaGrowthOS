@@ -1,47 +1,39 @@
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient, Prisma } from './generated/client.js';
+import type { PoolConfig } from 'pg';
 import type {
+  DatabaseLifecyclePort,
   DatabaseHealthPort,
   DatabaseStatus,
 } from '../../modules/system/application/database-health.js';
 
-const HEALTHCHECK_TIMEOUT_MS = 1_000;
+const DATABASE_TIMEOUT_MS = 1_000;
+const DATABASE_IDLE_TIMEOUT_MS = 10_000;
+const DATABASE_POOL_MAX = 2;
 
-export interface DatabaseHealthLogger {
-  warn(data: object, message: string): void;
-}
-
-export class PrismaDatabaseHealthAdapter implements DatabaseHealthPort {
+export class PrismaDatabaseHealthAdapter implements DatabaseHealthPort, DatabaseLifecyclePort {
+  private checkPromise: Promise<DatabaseStatus> | undefined;
   private disconnectPromise: Promise<void> | undefined;
 
-  public constructor(
-    private readonly client: PrismaClient,
-    private readonly logger: DatabaseHealthLogger,
-    private readonly timeoutMs = HEALTHCHECK_TIMEOUT_MS,
-  ) {}
+  public constructor(private readonly client: PrismaHealthClient) {}
 
   public async check(): Promise<DatabaseStatus> {
-    let timeout: NodeJS.Timeout | undefined;
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timeout = setTimeout(
-        () => reject(new Error('database health check timed out')),
-        this.timeoutMs,
-      );
-    });
+    if (!this.checkPromise) {
+      const checkPromise = this.runCheck();
+      this.checkPromise = checkPromise.finally(() => {
+        this.checkPromise = undefined;
+      });
+    }
 
+    return this.checkPromise;
+  }
+
+  private async runCheck(): Promise<DatabaseStatus> {
     try {
-      await Promise.race([this.client.$queryRaw(Prisma.sql`SELECT 1`), timeoutPromise]);
+      await this.client.$queryRaw(Prisma.sql`SELECT 1`);
       return 'up';
     } catch {
-      this.logger.warn(
-        { component: 'database', check: 'health', result: 'down' },
-        'Database health check failed',
-      );
       return 'down';
-    } finally {
-      if (timeout) {
-        clearTimeout(timeout);
-      }
     }
   }
 
@@ -54,16 +46,31 @@ export class PrismaDatabaseHealthAdapter implements DatabaseHealthPort {
   }
 }
 
-export function createPrismaDatabaseHealthAdapter(
-  connectionString: string,
-  logger: DatabaseHealthLogger,
-): PrismaDatabaseHealthAdapter {
-  const adapter = new PrismaPg({ connectionString });
-  const client = new PrismaClient({ adapter });
-  return new PrismaDatabaseHealthAdapter(client, logger);
+export interface PrismaHealthClient {
+  $queryRaw(query: Prisma.Sql): Promise<unknown>;
+  $disconnect(): Promise<void>;
 }
 
-export function createUnavailableDatabaseHealthPort(): DatabaseHealthPort {
+export function createPrismaDatabaseHealthAdapter(
+  connectionString: string,
+): PrismaDatabaseHealthAdapter {
+  const adapter = new PrismaPg(createPoolConfig(connectionString));
+  const client = new PrismaClient({ adapter });
+  return new PrismaDatabaseHealthAdapter(client);
+}
+
+export function createPoolConfig(connectionString: string): PoolConfig {
+  return {
+    connectionString,
+    connectionTimeoutMillis: DATABASE_TIMEOUT_MS,
+    query_timeout: DATABASE_TIMEOUT_MS,
+    statement_timeout: DATABASE_TIMEOUT_MS,
+    idleTimeoutMillis: DATABASE_IDLE_TIMEOUT_MS,
+    max: DATABASE_POOL_MAX,
+  };
+}
+
+export function createUnavailableDatabaseHealthPort(): DatabaseHealthPort & DatabaseLifecyclePort {
   return {
     check: async () => 'down',
     disconnect: async () => undefined,

@@ -4,7 +4,8 @@
 
 - Prisma 7.10.0 Client generated in infrastructure.
 - Real PostgreSQL `SELECT 1` health checks through an application port and infrastructure adapter.
-- Liveness, readiness, diagnostic database state, and idempotent Prisma disconnection.
+- Real PostgreSQL/pg timeouts, single-flight healthchecks, separated health/lifecycle ports, and idempotent Prisma disconnection.
+- Liveness, readiness, and diagnostic database state with safe structured readiness warnings.
 - `DATABASE_URL` and `TEST_DATABASE_URL` as local-only connection contracts.
 
 ## Future, not implemented

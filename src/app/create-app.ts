@@ -6,12 +6,23 @@ import { registerCorrelation } from '../shared/observability/correlation.js';
 import { createApplicationState } from '../shared/observability/app-state.js';
 import { createReadinessChecker } from '../modules/system/application/readiness.js';
 import { createSystemService } from '../modules/system/application/system-service.js';
-import type { DatabaseHealthPort } from '../modules/system/application/database-health.js';
+import type {
+  DatabaseHealthPort,
+  DatabaseLifecyclePort,
+} from '../modules/system/application/database-health.js';
 import { registerSystemRoutes } from '../modules/system/interfaces/http/system-routes.js';
 import { SERVICE_NAME, SERVICE_VERSION } from '../shared/config/service-info.js';
 
-export function createApp(config: AppConfig, databaseHealth: DatabaseHealthPort): FastifyInstance {
-  const app = Fastify({ logger: { level: config.LOG_LEVEL } });
+export function createApp(
+  config: AppConfig,
+  databaseHealth: DatabaseHealthPort,
+  databaseLifecycle: DatabaseLifecyclePort,
+  loggerStream?: NodeJS.WritableStream,
+): FastifyInstance {
+  const logger = loggerStream
+    ? { level: config.LOG_LEVEL, stream: loggerStream }
+    : { level: config.LOG_LEVEL };
+  const app = Fastify({ logger });
   const state = createApplicationState();
   const readinessChecker = createReadinessChecker(databaseHealth);
   const systemService = createSystemService(config, state, databaseHealth);
@@ -69,12 +80,18 @@ export function createApp(config: AppConfig, databaseHealth: DatabaseHealthPort)
   }));
   app.get('/ready', { schema: { tags: ['system'] } }, async (_request, reply) => {
     const result = await readinessChecker.check();
+    if (result.status === 'not-ready') {
+      _request.log.warn(
+        { component: 'database', check: 'readiness', result: 'down' },
+        'Database readiness check failed',
+      );
+    }
     return reply.code(result.status === 'ready' ? 200 : 503).send(result);
   });
   void registerSystemRoutes(app, systemService);
   app.addHook('onClose', async () => {
     if (!disconnectPromise) {
-      disconnectPromise = databaseHealth.disconnect();
+      disconnectPromise = databaseLifecycle.disconnect();
     }
     await disconnectPromise;
   });

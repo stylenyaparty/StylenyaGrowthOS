@@ -6,6 +6,9 @@
 - Keep dependencies directed toward domain and application code.
 - Keep frameworks in interfaces or infrastructure; domain code must not import them.
 - PostgreSQL is a real technical dependency behind adapters; Prisma 7.10.0 is confined to infrastructure. Prisma types must never become domain entities.
+- `DatabaseHealthPort` exposes only health checks; `DatabaseLifecyclePort` owns disconnection.
+- PostgreSQL health checks use real pg/PostgreSQL timeouts: 1 second connection, query, and statement limits, pool max 2, and 10-second idle timeout.
+- Concurrent readiness checks use adapter-level single-flight; no temporary health cache is used.
 
 ## Runtime and execution
 
@@ -28,4 +31,5 @@
 ## Explicit boundaries
 
 - Prisma Client connection and database health are implemented as technical infrastructure. Prisma models, PostgreSQL schemas, migrations, MCP, internal events, Outbox, workers, and commercial features are future work unless explicitly requested.
+- Prisma CLI vulnerabilities are a temporary tooling risk only when absent from the production image; review official Prisma 7 updates before changing versions.
 - Future PDFs are versioned representations; PostgreSQL will be the structured source of truth and Google Drive a document archive and consultation backup.
