@@ -12,9 +12,9 @@ services:
       DATABASE_PORT: ${DATABASE_PORT:-5432}
       DATABASE_NAME: ${DATABASE_NAME:-stylenyagrowthos}
       DATABASE_USER: ${DATABASE_USER:-StylenyaGrowthOS_db}
-      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-stylenya_app_local_only}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD must be set}
     ports:
-      - '${PORT:-3000}:${PORT:-3000}'
+      - '127.0.0.1:${PORT:-3000}:${PORT:-3000}'
     restart: unless-stopped
     healthcheck:
       test:
