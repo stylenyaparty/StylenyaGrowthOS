@@ -10,7 +10,8 @@
   },
   "scripts": {
     "dev": "tsx watch src/main.ts",
-    "build": "npm run prisma:generate && tsc -p tsconfig.json",
+    "build": "npm run prepare:local && npm run build:ts",
+    "build:ts": "tsc -p tsconfig.json",
     "start": "node dist/main.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint .",
@@ -20,6 +21,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:integration": "vitest run --config vitest.integration.config.ts",
+    "prepare:local": "node scripts/prepare-local.mjs",
     "prisma:generate": "prisma generate",
     "prisma:validate": "prisma validate"
   },

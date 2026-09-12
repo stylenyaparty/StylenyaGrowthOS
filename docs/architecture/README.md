@@ -10,6 +10,8 @@ The adapter configures `connectionTimeoutMillis`, `query_timeout`, and PostgreSQ
 
 Prisma 7.10.0 is pinned deliberately for this increment. Prisma 8 will be evaluated later and is not adopted automatically.
 
+After installing dependencies in a clean checkout, run `npm run prepare:local`. This explicit preparation validates the Prisma schema and generates Prisma Client using a syntactically valid, fictitious PostgreSQL URL; neither operation connects to PostgreSQL. Run it before typechecking, unit tests, or building. The fictitious URL is scoped to preparation only, and `DATABASE_URL` remains mandatory at application startup.
+
 The Prisma CLI audit findings are a temporary tooling risk only. The production image uses `npm ci --omit=dev` and does not expose the Prisma CLI; an official Prisma 7 update should be reviewed before changing versions.
 
 With npm 11 and Prisma 7.10.0, npm materializes the optional `prisma` peer of `@prisma/client` during a normal production install. The production image therefore uses the localized workaround `npm ci --omit=dev --legacy-peer-deps`; development and build stages continue using normal npm behavior. All mandatory runtime peers are declared directly. This workaround is temporary and must be reevaluated when npm or Prisma is upgraded.

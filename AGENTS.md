@@ -20,6 +20,15 @@
 - Nova/Codex and future MCP are the primary interaction direction.
 - Do not add sophisticated frontend, authentication, roles, or user administration.
 
+## Agent workspace limitations
+
+- StylenyaGrowthOS uses only the `main` branch locally and on GitHub.
+- If an agent detects another branch, it must stop Git-mutating operations, report the inconsistency, and continue only after the authorized environment confirms that it is on `main`.
+- Agents must not create, switch, delete, or publish branches without explicit instruction.
+- Agents must not add or modify Git remotes.
+- If the host does not provide Node.js 24, validate the target runtime with the Node.js 24 Docker image.
+- The authorized local environment performs Git integration operations with `origin/main`.
+
 ## Change discipline
 
 - Make small, tested, reversible changes.

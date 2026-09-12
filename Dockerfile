@@ -5,7 +5,7 @@ RUN npm ci
 
 FROM dependencies AS build
 COPY . .
-RUN DATABASE_URL=postgresql://build:build@127.0.0.1:5432/build?schema=public npm run build
+RUN npm run prepare:local && npm run build:ts
 
 FROM node:24-bookworm-slim AS production
 ENV NODE_ENV=production
