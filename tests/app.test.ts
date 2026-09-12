@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app/create-app.js';
+import { registerShutdownHandlers } from '../src/main.js';
 import { loadConfig } from '../src/shared/config/env.js';
 
 const testConfig = loadConfig({
@@ -102,5 +103,65 @@ describe('technical API', () => {
     await app.ready();
     await expect(app.close()).resolves.toBeUndefined();
     apps.delete(app);
+  });
+
+  it('closes the app once when SIGINT and SIGTERM arrive together', async () => {
+    const listeners = new Map<'SIGINT' | 'SIGTERM', () => void>();
+    let closeCalls = 0;
+    const logs: string[] = [];
+    const app = {
+      close: async () => {
+        closeCalls += 1;
+      },
+      log: {
+        info: (_data: object, message: string) => logs.push(message),
+        error: (_data: object, message: string) => logs.push(message),
+      },
+    };
+
+    registerShutdownHandlers({
+      app,
+      signalSource: { on: (signal, listener) => listeners.set(signal, listener) },
+      setExitCode: () => undefined,
+    });
+
+    listeners.get('SIGINT')?.();
+    listeners.get('SIGTERM')?.();
+    await Promise.resolve();
+
+    expect(closeCalls).toBe(1);
+    expect(logs).toEqual(['Shutdown started', 'Shutdown completed']);
+  });
+
+  it('records shutdown failures and sets the exit code', async () => {
+    let exitCode = 0;
+    const logs: string[] = [];
+    const app = {
+      close: async () => {
+        throw new Error('close failed');
+      },
+      log: {
+        info: (_data: object, message: string) => logs.push(message),
+        error: (_data: object, message: string) => logs.push(message),
+      },
+    };
+
+    registerShutdownHandlers({
+      app,
+      signalSource: {
+        on: (_signal, listener) => {
+          if (_signal === 'SIGTERM') {
+            listener();
+          }
+        },
+      },
+      setExitCode: (code) => {
+        exitCode = code;
+      },
+    });
+    await Promise.resolve();
+
+    expect(exitCode).toBe(1);
+    expect(logs).toEqual(['Shutdown started', 'Shutdown failed']);
   });
 });

@@ -1,12 +1,73 @@
 import { createApp } from './app/create-app.js';
 import { loadConfig } from './shared/config/env.js';
+import { fileURLToPath } from 'node:url';
 
-const config = loadConfig();
-const app = createApp(config);
+type ShutdownSignal = 'SIGINT' | 'SIGTERM';
 
-try {
-  await app.listen({ host: config.HOST, port: config.PORT });
-} catch (error) {
-  app.log.error(error, 'Unable to start application');
-  process.exitCode = 1;
+export interface ShutdownDependencies {
+  readonly app: {
+    close(): Promise<unknown>;
+    log: {
+      info(data: object, message: string): void;
+      error(data: object, message: string): void;
+    };
+  };
+  readonly signalSource: {
+    on(signal: ShutdownSignal, listener: () => void): unknown;
+  };
+  readonly setExitCode: (code: number) => void;
+}
+
+export function registerShutdownHandlers({
+  app,
+  signalSource,
+  setExitCode,
+}: ShutdownDependencies): void {
+  let shutdownPromise: Promise<void> | undefined;
+
+  const shutdown = (signal: ShutdownSignal): Promise<void> => {
+    if (shutdownPromise) {
+      return shutdownPromise;
+    }
+
+    shutdownPromise = (async () => {
+      app.log.info({ signal }, 'Shutdown started');
+      try {
+        await app.close();
+        app.log.info({ signal }, 'Shutdown completed');
+      } catch (error) {
+        app.log.error({ err: error, signal }, 'Shutdown failed');
+        setExitCode(1);
+      }
+    })();
+
+    return shutdownPromise;
+  };
+
+  signalSource.on('SIGINT', () => void shutdown('SIGINT'));
+  signalSource.on('SIGTERM', () => void shutdown('SIGTERM'));
+}
+
+async function start(): Promise<void> {
+  const config = loadConfig();
+  const app = createApp(config);
+
+  registerShutdownHandlers({
+    app,
+    signalSource: process,
+    setExitCode: (code) => {
+      process.exitCode = code;
+    },
+  });
+
+  try {
+    await app.listen({ host: config.HOST, port: config.PORT });
+  } catch (error) {
+    app.log.error({ err: error }, 'Unable to start application');
+    process.exitCode = 1;
+  }
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  await start();
 }
