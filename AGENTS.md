@@ -5,7 +5,7 @@
 - Use a modular monolith with Clean/Hexagonal Architecture.
 - Keep dependencies directed toward domain and application code.
 - Keep frameworks in interfaces or infrastructure; domain code must not import them.
-- PostgreSQL and Prisma are future persistence choices behind adapters. Prisma types must never become domain entities.
+- PostgreSQL is a real technical dependency behind adapters; Prisma 7.10.0 is confined to infrastructure. Prisma types must never become domain entities.
 
 ## Runtime and execution
 
@@ -27,5 +27,5 @@
 
 ## Explicit boundaries
 
-- PostgreSQL, Prisma, MCP, internal events, Outbox, workers, and commercial features are future work unless explicitly requested.
+- Prisma Client connection and database health are implemented as technical infrastructure. Prisma models, PostgreSQL schemas, migrations, MCP, internal events, Outbox, workers, and commercial features are future work unless explicitly requested.
 - Future PDFs are versioned representations; PostgreSQL will be the structured source of truth and Google Drive a document archive and consultation backup.

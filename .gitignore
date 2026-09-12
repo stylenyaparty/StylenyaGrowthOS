@@ -1,6 +1,7 @@
 node_modules/
 dist/
 coverage/
+src/infrastructure/prisma/generated/
 .env
 .env.*
 !.env.example

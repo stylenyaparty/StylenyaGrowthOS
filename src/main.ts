@@ -1,6 +1,10 @@
 import { createApp } from './app/create-app.js';
 import { loadConfig } from './shared/config/env.js';
 import { fileURLToPath } from 'node:url';
+import {
+  createPrismaDatabaseHealthAdapter,
+  createUnavailableDatabaseHealthPort,
+} from './infrastructure/prisma/prisma-database-health-adapter.js';
 
 type ShutdownSignal = 'SIGINT' | 'SIGTERM';
 
@@ -50,7 +54,24 @@ export function registerShutdownHandlers({
 
 async function start(): Promise<void> {
   const config = loadConfig();
-  const app = createApp(config);
+  let database = createUnavailableDatabaseHealthPort();
+  let databaseInitializationFailed = false;
+
+  try {
+    database = createPrismaDatabaseHealthAdapter(config.DATABASE_URL, {
+      warn: () => undefined,
+    });
+  } catch {
+    databaseInitializationFailed = true;
+  }
+
+  const app = createApp(config, database);
+  if (databaseInitializationFailed) {
+    app.log.error(
+      { component: 'database', error: 'initialization_failed' },
+      'Database adapter initialization failed',
+    );
+  }
 
   registerShutdownHandlers({
     app,

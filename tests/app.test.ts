@@ -2,12 +2,17 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app/create-app.js';
 import { registerShutdownHandlers } from '../src/main.js';
 import { loadConfig } from '../src/shared/config/env.js';
+import type {
+  DatabaseHealthPort,
+  DatabaseStatus,
+} from '../src/modules/system/application/database-health.js';
 
 const testConfig = loadConfig({
   NODE_ENV: 'test',
   HOST: '127.0.0.1',
   PORT: '3000',
   LOG_LEVEL: 'silent',
+  DATABASE_URL: 'postgresql://user:password@localhost:5432/stylenyagrowthos?schema=public',
 });
 
 const apps = new Set<ReturnType<typeof createApp>>();
@@ -17,27 +22,55 @@ afterEach(async () => {
   apps.clear();
 });
 
-function createTestApp() {
-  const app = createApp(testConfig);
+function createDatabaseHealth(status: DatabaseStatus = 'up'): DatabaseHealthPort {
+  return {
+    check: async () => status,
+    disconnect: async () => undefined,
+  };
+}
+
+function createTestApp(databaseHealth = createDatabaseHealth()) {
+  const app = createApp(testConfig, databaseHealth);
   apps.add(app);
   return app;
 }
 
 describe('technical API', () => {
   it('returns the health contract', async () => {
-    const response = await createTestApp().inject({ method: 'GET', url: '/health' });
+    let checks = 0;
+    const response = await createTestApp({
+      check: async () => {
+        checks += 1;
+        return 'up';
+      },
+      disconnect: async () => undefined,
+    }).inject({ method: 'GET', url: '/health' });
     const body = response.json<{ status: string; service: string; timestamp: string }>();
 
     expect(response.statusCode).toBe(200);
     expect(body).toMatchObject({ status: 'ok', service: 'stylenya-growth-os' });
     expect(Number.isNaN(Date.parse(body.timestamp))).toBe(false);
+    expect(checks).toBe(0);
   });
 
-  it('returns ready', async () => {
+  it('returns ready when the database is available', async () => {
     const response = await createTestApp().inject({ method: 'GET', url: '/ready' });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({ status: 'ready' });
+    expect(response.json()).toMatchObject({ status: 'ready', dependencies: { database: 'up' } });
+  });
+
+  it('returns not-ready when the database is unavailable', async () => {
+    const response = await createTestApp(createDatabaseHealth('down')).inject({
+      method: 'GET',
+      url: '/ready',
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toMatchObject({
+      status: 'not-ready',
+      dependencies: { database: 'down' },
+    });
   });
 
   it('returns the service version', async () => {
@@ -61,12 +94,25 @@ describe('technical API', () => {
       service: 'stylenya-growth-os',
       status: 'ok',
       version: '0.1.0',
-      dependencies: { database: 'not-configured' },
+      dependencies: { database: 'up' },
     });
     expect(Number.isNaN(Date.parse(body.startedAt))).toBe(false);
     expect(Number.isNaN(Date.parse(body.timestamp))).toBe(false);
     expect(body.uptimeSeconds).toBeGreaterThanOrEqual(0);
     expect(body.instanceId).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it('reports database down in system status without exposing internal errors', async () => {
+    const response = await createTestApp(createDatabaseHealth('down')).inject({
+      method: 'GET',
+      url: '/api/v1/system/status',
+    });
+    const body = response.json();
+
+    expect(response.statusCode).toBe(200);
+    expect(body.dependencies).toEqual({ database: 'down' });
+    expect(JSON.stringify(body)).not.toContain('password');
+    expect(JSON.stringify(body)).not.toContain('postgresql://');
   });
 
   it('preserves a received correlation ID', async () => {
@@ -96,6 +142,33 @@ describe('technical API', () => {
 
   it('fails when configuration is invalid', () => {
     expect(() => loadConfig({ PORT: 'not-a-port' })).toThrow();
+    expect(() => loadConfig({ DATABASE_URL: 'not-a-database-url' })).toThrow();
+    expect(() => loadConfig({})).toThrow();
+  });
+
+  it('does not expose DATABASE_URL or its password in responses', async () => {
+    const response = await createTestApp().inject({ method: 'GET', url: '/api/v1/system/status' });
+    const serialized = response.body;
+
+    expect(serialized).not.toContain('postgresql://');
+    expect(serialized).not.toContain('password');
+  });
+
+  it('disconnects the database exactly once when Fastify closes', async () => {
+    let disconnectCalls = 0;
+    const app = createTestApp({
+      check: async () => 'up',
+      disconnect: async () => {
+        disconnectCalls += 1;
+      },
+    });
+
+    await app.ready();
+    await app.close();
+    await app.close();
+    apps.delete(app);
+
+    expect(disconnectCalls).toBe(1);
   });
 
   it('can be created and closed cleanly', async () => {

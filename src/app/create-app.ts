@@ -6,14 +6,16 @@ import { registerCorrelation } from '../shared/observability/correlation.js';
 import { createApplicationState } from '../shared/observability/app-state.js';
 import { createReadinessChecker } from '../modules/system/application/readiness.js';
 import { createSystemService } from '../modules/system/application/system-service.js';
+import type { DatabaseHealthPort } from '../modules/system/application/database-health.js';
 import { registerSystemRoutes } from '../modules/system/interfaces/http/system-routes.js';
 import { SERVICE_NAME, SERVICE_VERSION } from '../shared/config/service-info.js';
 
-export function createApp(config: AppConfig): FastifyInstance {
+export function createApp(config: AppConfig, databaseHealth: DatabaseHealthPort): FastifyInstance {
   const app = Fastify({ logger: { level: config.LOG_LEVEL } });
   const state = createApplicationState();
-  const readinessChecker = createReadinessChecker();
-  const systemService = createSystemService(config, state);
+  const readinessChecker = createReadinessChecker(databaseHealth);
+  const systemService = createSystemService(config, state, databaseHealth);
+  let disconnectPromise: Promise<void> | undefined;
 
   app.addSchema({
     $id: 'VersionResponse',
@@ -47,7 +49,7 @@ export function createApp(config: AppConfig): FastifyInstance {
       timestamp: { type: 'string', format: 'date-time' },
       instanceId: { type: 'string' },
       version: { type: 'string' },
-      dependencies: { type: 'object', additionalProperties: { type: 'string' } },
+      dependencies: { type: 'object', additionalProperties: { enum: ['up', 'down'] } },
     },
   });
 
@@ -65,8 +67,17 @@ export function createApp(config: AppConfig): FastifyInstance {
     service: SERVICE_NAME,
     timestamp: new Date().toISOString(),
   }));
-  app.get('/ready', { schema: { tags: ['system'] } }, async () => readinessChecker.check());
+  app.get('/ready', { schema: { tags: ['system'] } }, async (_request, reply) => {
+    const result = await readinessChecker.check();
+    return reply.code(result.status === 'ready' ? 200 : 503).send(result);
+  });
   void registerSystemRoutes(app, systemService);
+  app.addHook('onClose', async () => {
+    if (!disconnectPromise) {
+      disconnectPromise = databaseHealth.disconnect();
+    }
+    await disconnectPromise;
+  });
 
   app.setNotFoundHandler(async (request, reply) => {
     return reply.code(404).send({
